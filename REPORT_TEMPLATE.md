@@ -49,10 +49,10 @@ Tổng kết: **4 / 4 tiêu chí đạt**
 
 | | |
 |---|---|
-| **Triệu chứng** | Bảng `gold_training_set` bị nhân bản dữ liệu sau mỗi lần re-run (`38,750` hàng thay vì `12,480` hàng kỳ vọng), làm sai lệch phân bố dữ liệu huấn luyện. |
-| **Nguyên nhân** | Incremental model `gold_training_set` không được khai báo `unique_key`. Khi thiếu `unique_key`, dbt mặc định generate ra câu lệnh `INSERT INTO`; do đó mỗi lượt chạy lại cùng một ngày/partition sẽ chèn nối tiếp dữ liệu thay vì ghi đè (`MERGE`), làm mất tính idempotent. Đồng thời Airflow DAG đặt `catchup=True` và không giới hạn `max_active_runs` khiến việc rerun bị kích hoạt song song. |
-| **Cách khắc phục** | 1. `dbt/models/gold/gold_training_set.sql`: Thêm `unique_key = 'ticket_id'` và `incremental_strategy = 'merge'` vào `config()`.<br>2. `dags/ai_training_pipeline.py`: Đặt `catchup=False` và `max_active_runs=1`. |
-| **Bằng chứng** | trước: 38,750 hàng (FAIL) · sau: 12,480 hàng (✓ ok) · checksum 3 lượt: `8622572a97` (✓ trùng khớp 100%). |
+| **Triệu chứng** | Bảng `gold_training_set` tăng lên 38.750 hàng (kỳ vọng 12.480) sau các lần chạy lại, xuất hiện bản ghi trùng lặp ticket. |
+| **Nguyên nhân** | Incremental model `gold_training_set` không khai báo `unique_key`. Khi thiếu `unique_key`, dbt tự động tạo câu lệnh `INSERT INTO` ghi chèn dữ liệu cũ khi rerun thay vì `MERGE` ghi đè, làm mất tính idempotent. DAG Airflow đặt `catchup=True` làm kích hoạt chạy bù dồn dập các ngày quá khứ. |
+| **Cách khắc phục** | `dbt/models/gold/gold_training_set.sql`: Thêm `unique_key = 'ticket_id'` và `incremental_strategy = 'merge'`.<br>`dags/ai_training_pipeline.py`: Đặt `catchup=False` và `max_active_runs=1`. |
+| **Bằng chứng** | Trước: 38.750 hàng (FAIL) · Sau: 12.480 hàng (✓ ok) · Checksum 3 lượt: `8dd7c98653`. |
 
 ---
 
@@ -60,16 +60,16 @@ Tổng kết: **4 / 4 tiêu chí đạt**
 
 | | |
 |---|---|
-| **Triệu chứng** | Bảng `gold_feature_daily` chỉ thu được 8,645 hàng thay vì 9,100 hàng (thiếu 455 cặp `(event_date, customer_id)` ở các ngày quá khứ). |
+| **Triệu chứng** | Bảng `gold_feature_daily` đạt 8.645 hàng (kỳ vọng 9.100), thiếu 455 cặp `(event_date, customer_id)` ở các ngày quá khứ. |
 | **P99 độ trễ đo được** | **3 ngày** |
-| **Lookback đã chọn** | 3 ngày — vì phân bố độ trễ P99 của `bronze_events` cho thấy 99% các sự kiện đến muộn lọt vào kho trong vòng 3 ngày kể từ khi phát sinh. |
-| **Nguyên nhân** | Điều kiện incremental ban đầu chỉ dùng `where event_date > (select max(event_date) from {{ this }})`. Khi một event xảy ra ở ngày quá khứ (ví dụ `event_date = 08-12`) nhưng bị trễ và được nạp ở ngày `08-15`, lúc này `max(event_date)` trong Gold đã là `08-14`, khiến điều kiện `event_date > max(event_date)` loại bỏ hoàn toàn các event đến muộn này. |
-| **Cách khắc phục** | 1. `dbt/models/gold/gold_feature_daily.sql`: Nới rộng window thành `where event_date >= (select max(event_date) - interval '3' day from {{ this }})`.<br>2. Thêm `unique_key = ['event_date', 'customer_id']` và `incremental_strategy = 'merge'` để ghi đè dữ liệu khi tính toán lại lookback window. |
-| **Bằng chứng** | trước: 8,645 hàng (thiếu 455 hàng) · sau: 9,100 hàng (✓ ok, 14 ngày × 650 customers). |
+| **Lookback đã chọn** | 3 ngày — 99% các sự kiện nạp muộn trong `bronze_events` có độ trễ lọt vào kho trong vòng 3 ngày. |
+| **Nguyên nhân** | Mệnh đề incremental dùng `where event_date > (select max(event_date) from {{ this }})`. Một event có `event_date` cũ (ví dụ 08-12) nạp trễ ở ngày 08-15 bị loại hoàn toàn do `max(event_date)` lúc này đã là 08-14. |
+| **Cách khắc phục** | `dbt/models/gold/gold_feature_daily.sql`: Sửa điều kiện thành `where event_date >= (select max(event_date) - interval '3' day from {{ this }})`, khai báo `unique_key = ['event_date', 'customer_id']` và `incremental_strategy = 'merge'`. |
+| **Bằng chứng** | Trước: 8.645 hàng · Sau: 9.100 hàng (✓ ok, 14 ngày × 650 customer). |
 
 Vì sao chọn P99 làm căn cứ thay vì `max`? Chi phí của mỗi lựa chọn là gì?
 
-> **Trả lời:** `max` độ trễ có thể bị kéo dài bởi các outlier cực đoan (ví dụ lỗi mạng đứt kết nối cả tháng). Nếu chọn lookback theo `max`, mọi lượt chạy daily sau này đều phải tính lại toàn bộ lịch sử nhiều tuần/tháng, làm tốn chi phí tính toán (CPU/IO) và kéo dài thời gian chạy đường ống. Chọn **P99** là sự đánh đổi tối ưu: bao phủ được 99% dữ liệu trễ thực tế với chi phí tài nguyên cố định chỉ là 3 ngày lookback.
+> Nếu dùng `max`, một outlier trễ hàng tuần/tháng ép mọi lượt chạy daily phải tính toán lại toàn bộ lịch sử quá khứ, gây tốn chi phí IO/CPU và kéo dài thời gian pipeline. Dùng **P99** đảm bảo xử lý được 99% dữ liệu trễ với chi phí tính toán cố định 3 ngày lookback.
 
 ---
 
@@ -77,17 +77,16 @@ Vì sao chọn P99 làm căn cứ thay vì `max`? Chi phí của mỗi lựa ch�
 
 | | |
 |---|---|
-| **Triệu chứng** | `silver_tickets.priority` có 6,606 bản ghi sai (`NULL` hoặc số ngoài 1..4), `quarantine_tickets` có 0 hàng thay vì 312 hàng. |
-| **Nguyên nhân** | Phía backend nâng cấp schema evolution từ ngày 2026-08-10 sang gửi nhãn chuỗi (`urgent`, `high`, `medium`, `low`). Biểu thức `try_cast(priority_raw as integer)` ban đầu vừa biến nhãn chuỗi hợp lệ thành `NULL` (gây mất dữ liệu tốt), vừa bỏ sót các số rác ngoài khoảng contract (`0`, `5`, `-1`). Bảng quarantine chưa có điều kiện lọc (`where false`). |
-| **Ba nhóm giá trị `priority` và cách xử lý từng nhóm** | 1. **Số hợp lệ** (`'1'`, `'2'`, `'3'`, `'4'`): Giữ nguyên, ép về số integer 1..4.<br>2. **Nhãn chữ (Schema Evolution)** (`'urgent'`, `'high'`, `'medium'`, `'low'`): Map tương ứng về `1`, `2`, `3`, `4`.<br>3. **Giá trị hỏng** (`'P1'`, `'unknown'`, `'0'`, `'5'`, `'-1'`, `''`, `null`): Ép về `NULL` để đẩy sang quarantine. |
-| **Cách khắc phục** | 1. `dbt/macros/normalize_priority.sql`: Viết khối `CASE` xử lý đúng 3 nhóm giá trị.<br>2. `dbt/models/silver/silver_tickets.sql`: Lọc bản ghi rác (`WHERE normalize_priority IS NOT NULL`) **trước khi** dùng `row_number()` xếp hạng CDC để không làm mất ticket.<br>3. `dbt/models/silver/quarantine_tickets.sql`: Thêm `WHERE normalize_priority IS NULL`.<br>4. `dbt/models/silver/schema.yml`: Đặt `enforced: true` và thêm test `accepted_values: [1, 2, 3, 4]`. |
-| **Bằng chứng** | `quarantine_tickets` = 312 hàng (✓ ok) · `dbt test` 11/11 pass (✓ ok) · `silver_tickets` đủ 12,480 ticket. |
+| **Triệu chứng** | `silver_tickets.priority` có 6.606 bản ghi sai (`NULL` hoặc ngoài 1..4). Bảng `quarantine_tickets` có 0 hàng (kỳ vọng 312). |
+| **Nguyên nhân** | Backend thay đổi format dữ liệu từ ngày 2026-08-10 sang gửi nhãn chuỗi (`urgent`, `high`, `medium`, `low`). Biểu thức `try_cast(priority_raw as integer)` biến nhãn chuỗi thành `NULL` làm mất dữ liệu, đồng thời bỏ sót các số rác `0`, `5`, `-1`. Bảng quarantine chưa lọc dữ liệu (`where false`). |
+| **Ba nhóm giá trị `priority` và cách xử lý từng nhóm** | 1. **Số hợp lệ** (`'1'`, `'2'`, `'3'`, `'4'`): Giữ nguyên.<br>2. **Nhãn chuỗi** (`'urgent'`, `'high'`, `'medium'`, `'low'`): Ánh xạ về `1`, `2`, `3`, `4`.<br>3. **Dữ liệu lỗi** (`'P1'`, `'unknown'`, `'0'`, `'5'`, `'-1'`, `''`, `null`): Ép về `NULL` để đẩy sang quarantine. |
+| **Cách khắc phục** | `dbt/macros/normalize_priority.sql`: Viết `CASE` xử lý 3 nhóm trên.<br>`dbt/models/silver/silver_tickets.sql`: Lọc `normalize_priority IS NOT NULL` **trước khi** `row_number()` xếp hạng.<br>`dbt/models/silver/quarantine_tickets.sql`: Lọc `normalize_priority IS NULL`.<br>`dbt/models/silver/schema.yml`: Đặt `enforced: true` và thêm test `accepted_values: [1, 2, 3, 4]`. |
+| **Bằng chứng** | `quarantine_tickets` = 312 hàng (✓ ok) · `dbt test` 11/11 pass (✓ ok) · `silver_tickets` đủ 12.480 ticket. |
 
 Câu hỏi thiết kế: nên chặn ở tầng Bronze hay Silver? Vì sao **không** để pipeline dừng khi gặp bản ghi lỗi?
 
-> **Trả lời:** 
-> 1. **Nên xử lý ở tầng Silver**: Bronze đóng vai trò là "Data Lake / Landing Zone" lưu trữ trung thực mọi dữ liệu thô (raw & immutable). Nếu chặn ở Bronze, dữ liệu lỗi sẽ bị hủy bỏ hoàn toàn trước khi vào kho, làm mất dấu vết kiểm toán (auditability) và không thể điều tra nguyên nhân sự cố.
-> 2. **Không để pipeline dừng**: Trong môi trường sản xuất, vài trăm bản ghi lỗi không nên có quyền dừng cả đường ống dữ liệu và làm gián đoạn việc phục vụ cho hàng trăm nghìn bản ghi hợp lệ khác (fault-tolerant pattern). Cơ chế Quarantine giúp cách ly riêng các bản ghi lỗi để đội vận hành xử lý sau, trong khi pipeline vẫn tiếp tục vận hành thông suốt.
+> 1. **Tầng xử lý**: Xử lý ở tầng Silver. Tầng Bronze là Landing Zone cần lưu trữ nguyên vẹn dữ liệu thô (immutable) để đảm bảo tính kiểm toán và phục vụ điều tra sự cố.
+> 2. **Cơ chế chịu lỗi**: Không dừng pipeline khi gặp bản ghi lỗi vì vài trăm bản ghi hỏng không được chặn tiến trình xử lý hàng trăm nghìn bản ghi hợp lệ khác. Bảng Quarantine tiếp nhận bản ghi lỗi để xử lý sau mà không làm đứt đoạn pipeline.
 
 ---
 
@@ -95,7 +94,7 @@ Câu hỏi thiết kế: nên chặn ở tầng Bronze hay Silver? Vì sao **kh�
 
 | | |
 |---|---|
-| **Bài đã làm** | Không làm (đã đạt điểm tối đa 100/100 ở 3 bài chính) |
+| **Bài đã làm** | Không làm (đạt 100/100 ở 3 bài chính) |
 | **Nguyên nhân** | — |
 | **Cách khắc phục** | — |
 | **Bằng chứng** | — |
@@ -106,6 +105,6 @@ Câu hỏi thiết kế: nên chặn ở tầng Bronze hay Silver? Vì sao **kh�
 
 | Nhiệm vụ | Khi tiếp nhận một hệ thống chưa quen, tôi sẽ kiểm tra điều này trước tiên |
 |---|---|
-| 1 | Kiểm tra các incremental model đã khai báo `unique_key` và `incremental_strategy` phù hợp hay chưa để đảm bảo tính idempotent khi rerun. |
-| 2 | Đánh giá phân bố độ trễ nạp dữ liệu thực tế (P99 latency) để thiết lập lookback window chính xác cho dữ liệu đến muộn. |
-| 3 | Kiểm tra Data Contract, kiểm soát Schema Evolution và thiết lập bảng Quarantine cách ly bản ghi lỗi thay vì để pipeline bị crash. |
+| 1 | Kiểm tra cấu hình `unique_key` và `incremental_strategy` của các incremental model để đảm bảo tính idempotent. |
+| 2 | Đo phân bố độ trễ nạp dữ liệu (P99 latency) để xác định lookback window hợp lý cho dữ liệu đến muộn. |
+| 3 | Kiểm tra Data Contract và cơ chế Quarantine cách ly dữ liệu lỗi để bảo vệ pipeline không bị dừng đột ngột. |
