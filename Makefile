@@ -1,11 +1,23 @@
 SHELL   := /bin/bash
 VENV    := .venv
-PY      := $(VENV)/bin/python
-PIP     := $(VENV)/bin/pip
-DBT     := $(VENV)/bin/dbt
+
+ifeq ($(OS),Windows_NT)
+    BIN := Scripts
+    PYTHON_CMD := python
+else
+    BIN := bin
+    PYTHON_CMD := python3
+endif
+
+PY      := $(VENV)/$(BIN)/python
+PIP     := $(VENV)/$(BIN)/pip
+DBT     := $(VENV)/$(BIN)/dbt
+
 
 export LAB17_DB := $(CURDIR)/warehouse.duckdb
 export DBT_PROFILES_DIR := $(CURDIR)/dbt
+export PYTHONUTF8 := 1
+export PYTHONIOENCODING := utf-8
 
 .DEFAULT_GOAL := help
 .PHONY: help setup seed seed-extra pipeline verify quick explain plan dbt-test \
@@ -20,8 +32,8 @@ help:  ## danh sách lệnh
 	@echo ""
 
 setup:  ## venv + thư viện + sinh dữ liệu (chạy một lần)
-	@test -d $(VENV) || python3 -m venv $(VENV)
-	@$(PIP) install -q --upgrade pip
+	@test -d $(VENV) || $(PYTHON_CMD) -m venv $(VENV)
+	@$(PY) -m pip install -q --upgrade pip
 	@$(PIP) install -q -r requirements.txt
 	@$(PY) seed/generate.py
 	@echo ""

@@ -45,16 +45,13 @@
 #}
 
 {% macro normalize_priority(col) %}
-    -- TODO(nhiệm vụ 3): thay biểu thức dưới đây bằng một khối CASE xử lý
-    -- đủ ba nhóm ở trên.
-    --
-    --     case
-    --         when <nhóm 1: đã là số hợp lệ>  then <giữ nguyên>
-    --         when <nhóm 2: nhãn chữ>         then <số tương ứng>
-    --         ...
-    --         else null                        -- nhóm 3
-    --     end
-    try_cast({{ col }} as integer)
+    case
+        when lower(trim(cast({{ col }} as varchar))) in ('1', 'urgent') then 1
+        when lower(trim(cast({{ col }} as varchar))) in ('2', 'high') then 2
+        when lower(trim(cast({{ col }} as varchar))) in ('3', 'medium') then 3
+        when lower(trim(cast({{ col }} as varchar))) in ('4', 'low') then 4
+        else null
+    end
 {% endmacro %}
 
 
