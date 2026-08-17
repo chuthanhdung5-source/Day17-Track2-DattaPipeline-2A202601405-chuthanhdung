@@ -13,9 +13,9 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   LAB 17 · make verify
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  run 1/3 … 21.7s
-  run 2/3 … 22.3s
-  run 3/3 … 21.4s
+  run 1/3 … 22.4s
+  run 2/3 … 22.0s
+  run 3/3 … 21.6s
 
   BẢNG                  ỔN ĐỊNH          SỐ HÀNG     KỲ VỌNG   GHI CHÚ
   ──────────────────────────────────────────────────────────────────────────
@@ -26,15 +26,15 @@
 
   CHECKSUM từng lượt
   ──────────────────────────────────────────────────────────────────────────
-  gold_training_set     8622572a97    8622572a97    8622572a97   ✓
-  gold_feature_daily    4eee63cd82    4eee63cd82    4eee63cd82   ✓
+  gold_training_set     8dd7c98653    8dd7c98653    8dd7c98653   ✓
+  gold_feature_daily    3db448685c    3db448685c    3db448685c   ✓
   gold_doc_chunks       92d8e50131    92d8e50131    92d8e50131   ✓
-  quarantine_tickets    b273fa1108    b273fa1108    b273fa1108   ✓
+  quarantine_tickets    ebb89036fb    ebb89036fb    ebb89036fb   ✓
 
   KIỂM TRA KHÁC
   ──────────────────────────────────────────────────────────────────────────
   dbt test                                    ✓ 11/11 pass
-  silver_tickets.priority ∈ 1..4, không NULL  ✓ 0 hàng sai
+  silver_tickets.priority ∈ 1..4, không NULL  ✓ sạch
   quarantine_tickets đúng số bản ghi lỗi      ✓ 312 / 312
   gold_training_set: 1 hàng / 1 ticket        ✓ không lặp
 ```
